@@ -13,6 +13,7 @@ func die(_ message: String) -> Never {
 
 let USAGE = """
 usage:
+  hasocket config [--base-url url] [--token token]  write ~/.config/hasocket/config.json (prompts for anything not passed)
   hasocket serve [--entities e1,e2,...]           hold the HA websocket connection open; run this first
   hasocket status                                 check hasocket is running & connected
   hasocket list                                   list all cached entity states
@@ -24,6 +25,24 @@ usage:
   config read from ~/.config/hasocket/config.json ({"base_url": ..., "token": ...})
   serve's default watch list read from ~/.config/hasocket/watch.json (a JSON array of entity IDs)
 """
+
+func prompt(_ label: String) -> String {
+    FileHandle.standardError.write((label + ": ").data(using: .utf8)!)
+    return readLine(strippingNewline: true) ?? ""
+}
+
+func readTokenHidden() -> String {
+    FileHandle.standardError.write("Long-lived access token: ".data(using: .utf8)!)
+    var raw = termios()
+    tcgetattr(STDIN_FILENO, &raw)
+    var original = raw
+    raw.c_lflag &= ~tcflag_t(ECHO)
+    tcsetattr(STDIN_FILENO, TCSANOW, &raw)
+    let token = readLine(strippingNewline: true) ?? ""
+    tcsetattr(STDIN_FILENO, TCSANOW, &original)
+    FileHandle.standardError.write("\n".data(using: .utf8)!)
+    return token
+}
 
 func parseValue(_ s: String) -> JSONValue {
     switch s {
@@ -47,9 +66,32 @@ guard let command = args.first else { die(USAGE) }
 args.removeFirst()
 
 switch command {
+case "config":
+    var baseURL = args.first(where: { $0.hasPrefix("--base-url=") })?.dropFirst("--base-url=".count).description
+    var token = args.first(where: { $0.hasPrefix("--token=") })?.dropFirst("--token=".count).description
+
+    if baseURL == nil {
+        let existing = HAConfigStore.load()?.baseURL
+        let entered = prompt("Home Assistant base URL (e.g. http://homeassistant.local:8123)\(existing.map { " [\($0)]" } ?? "")")
+        baseURL = entered.isEmpty ? existing : entered
+    }
+    guard let baseURL, !baseURL.isEmpty else { die("base URL is required") }
+
+    if token == nil {
+        token = readTokenHidden()
+    }
+    guard let token, !token.isEmpty else { die("token is required") }
+
+    do {
+        try HAConfigStore.save(baseURL: baseURL, token: token)
+        print("wrote \(HAConfigStore.configPath.path)")
+    } catch {
+        die("failed to write config: \(error.localizedDescription)")
+    }
+
 case "serve":
     guard let config = HAConfigStore.load() else {
-        die("no config at \(HAConfigStore.configPath.path) - expected {\"base_url\": ..., \"token\": ...}")
+        die("no config at \(HAConfigStore.configPath.path) - run `hasocket config` to create one")
     }
 
     var entities = HAConfigStore.loadWatchedEntities()

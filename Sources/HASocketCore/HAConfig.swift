@@ -35,4 +35,21 @@ public enum HAConfigStore {
         else { return [] }
         return arr
     }
+
+    public static var exists: Bool {
+        FileManager.default.fileExists(atPath: configPath.path)
+    }
+
+    public static func save(baseURL: String, token: String) throws {
+        try FileManager.default.createDirectory(
+            at: configPath.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let obj: [String: String] = ["base_url": baseURL, "token": token]
+        let data = try JSONSerialization.data(withJSONObject: obj, options: [.prettyPrinted, .sortedKeys])
+        try data.write(to: configPath, options: .atomic)
+        // The file holds a long-lived HA access token - keep it readable only
+        // by the owner.
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: configPath.path)
+    }
 }

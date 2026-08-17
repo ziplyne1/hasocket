@@ -6,8 +6,25 @@ struct MenuBarContentView: View {
     @EnvironmentObject private var controller: DaemonController
     @State private var cliLinked = CLIInstaller.isSymlinkCurrent
     @State private var cliError: String?
+    @State private var configExists = HAConfigStore.exists
+    @State private var showingSetup = false
 
     var body: some View {
+        if !configExists || showingSetup {
+            ConfigSetupView(
+                onSaved: {
+                    configExists = true
+                    showingSetup = false
+                    controller.start()
+                },
+                onCancel: configExists ? { showingSetup = false } : nil
+            )
+        } else {
+            mainView
+        }
+    }
+
+    private var mainView: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("hasocket")
                 .font(.headline)
@@ -36,13 +53,36 @@ struct MenuBarContentView: View {
                 }
                 .keyboardShortcut("q")
             }
-
+            
             Divider()
 
-            Button(cliLinked ? "CLI Linked ✓" : "Install CLI to ~/.local/bin") {
-                installCLI()
+            HStack {
+                if #available(macOS 14.0, *) {
+                    Button(cliLinked ? "CLI Installed ✓" : "Install CLI to ~/.local/bin") {
+                        installCLI()
+                    }
+                    .buttonStyle(.accessoryBar)
+                    .disabled(cliLinked)
+                    
+                    Spacer()
+                    
+                    Button("Edit Token") {
+                        showingSetup = true
+                    }
+                    .buttonStyle(.accessoryBar)
+                } else {
+                    Button(cliLinked ? "CLI Installed ✓" : "Install CLI to ~/.local/bin") {
+                        installCLI()
+                    }
+                    .disabled(cliLinked)
+                    
+                    Spacer()
+                    
+                    Button("Edit Token") {
+                        showingSetup = true
+                    }
+                }
             }
-            .disabled(cliLinked)
 
             if let cliError {
                 Text(cliError)
